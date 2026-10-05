@@ -2,8 +2,16 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Dosis</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#071113">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Dosis">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;900&family=Archivo+Narrow:wght@400;600;700&family=VT323&display=swap">
@@ -19,7 +27,7 @@
   color-scheme:dark;
 }
 html,body{height:100%}
-body{background:var(--night);color:var(--ink);font-family:var(--body);font-size:15px;overflow:hidden;-webkit-user-select:none;user-select:none}
+body{background:var(--night);color:var(--ink);font-family:var(--body);font-size:15px;overflow:hidden;overscroll-behavior:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 #app{height:100%;display:flex;flex-direction:column}
 #viewport{position:relative;flex:1;min-height:0;overflow:hidden;background:var(--night)}
 #view{display:block;width:100%;height:100%;image-rendering:crisp-edges;image-rendering:pixelated;cursor:crosshair;touch-action:none}
@@ -150,6 +158,8 @@ table.res td.n{font:19px/1 var(--mono);text-align:right}
 #tbtns{position:absolute;right:16px;bottom:16px;display:grid;grid-template-columns:repeat(3,58px);gap:8px;pointer-events:auto}
 #tbtns button{height:52px;border:1px solid var(--line);background:rgba(7,17,19,.6);color:var(--ink);font:700 13px var(--body);text-transform:uppercase;letter-spacing:.06em;touch-action:none}
 #tbtns button.main{grid-column:span 2;background:rgba(224,62,54,.75)}
+#tsys{position:absolute;left:50%;top:12px;transform:translateX(-50%);display:flex;gap:8px;pointer-events:auto}
+#tsys button{height:40px;padding:0 12px;border:1px solid var(--line);background:rgba(7,17,19,.6);color:var(--ink);font:700 13px var(--body);text-transform:uppercase;letter-spacing:.06em;touch-action:none}
 
 @media (max-width:760px){
   .big{font-size:26px}.cell{padding:4px 8px}.med{min-width:0;padding:3px 5px}.med .vial{height:24px}
@@ -184,6 +194,10 @@ body{margin:0}
     <div id="toasts"></div>
     <div id="touch" hidden>
       <div id="stickZone"><div id="stickKnob"></div></div>
+      <div id="tsys">
+        <button type="button" data-act="map">Karte</button>
+        <button type="button" data-act="pause">Pause</button>
+      </div>
       <div id="tbtns">
         <button type="button" data-act="minus">Dosis −</button>
         <button type="button" data-act="plus">Dosis +</button>
@@ -970,6 +984,8 @@ function endStick(e){if(e.pointerId!==stick.id)return;stick.id=null;stick.dx=sti
 sz.addEventListener('pointerup',endStick);sz.addEventListener('pointercancel',endStick);
 $('#tbtns').addEventListener('pointerdown',e=>{const b=e.target.closest('button');if(!b)return;e.preventDefault();audioInit();const a=b.dataset.act;
   if(a==='fire')fire();else if(a==='spray')sprayHeld=true;else if(a==='minus')changeDose(-.5);else if(a==='plus')changeDose(.5);else if(a==='med')P.med=(P.med+1)%4});
+$('#tsys').addEventListener('pointerdown',e=>{const b=e.target.closest('button');if(!b||state!=='play')return;e.preventDefault();
+  if(b.dataset.act==='map')showMap=!showMap;else if(b.dataset.act==='pause')showPause()});
 ['pointerup','pointercancel','pointerleave'].forEach(t=>$('#tbtns').addEventListener(t,e=>{const b=e.target.closest&&e.target.closest('button');if(b&&b.dataset.act==='spray')sprayHeld=false}));
 
 /* ---------- Start ---------- */
@@ -982,6 +998,9 @@ function frame(now){
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+/* Als App installierbar (PWA) */
+if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('/sw.js').catch(()=>{});
 </script>
 </body>
 </html>
