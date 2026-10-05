@@ -1,0 +1,873 @@
+<title>Dosis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;900&family=Archivo+Narrow:wght@400;600;700&family=VT323&display=swap">
+<style>
+/* Layout: randloses 3D-Bild über einer Doom-artigen Statusleiste; HUD als DOM-Ebene darüber */
+:root{
+  --night:#071113; --steel:#14262a; --panel:#0d1b1e; --line:#2a4146;
+  --ink:#e2ebe9; --mute:#87a19f; --scrub:#3cb8a8; --vital:#7df0b2;
+  --warn:#f2b347; --alarm:#ff554b; --cross:#e03e36;
+  --display:'Big Shoulders Display','Arial Narrow',Impact,sans-serif;
+  --body:'Archivo Narrow','Arial Narrow',system-ui,sans-serif;
+  --mono:'VT323',ui-monospace,'Courier New',monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--night);color:var(--ink);font-family:var(--body);font-size:15px;overflow:hidden;-webkit-user-select:none;user-select:none}
+#app{height:100%;display:flex;flex-direction:column}
+#viewport{position:relative;flex:1;min-height:0;overflow:hidden;background:var(--night)}
+#view{display:block;width:100%;height:100%;image-rendering:crisp-edges;image-rendering:pixelated;cursor:crosshair;touch-action:none}
+
+/* Stationstafel */
+#board{position:absolute;left:12px;top:12px;width:250px;max-width:calc(100% - 24px);background:rgba(7,17,19,.78);border:1px solid var(--line);padding:8px 10px 6px;pointer-events:none}
+#board h2{margin:0 0 6px;font:700 13px/1 var(--body);letter-spacing:.16em;text-transform:uppercase;color:var(--mute);display:flex;justify-content:space-between;gap:8px}
+#board h2 b{color:var(--ink);font-weight:700}
+.prow{display:grid;grid-template-columns:18px minmax(0,1fr) 54px 68px;gap:6px;align-items:center;font-size:13px;padding-block:3px;border-top:1px solid rgba(42,65,70,.6)}
+.prow .bn{font-family:var(--mono);font-size:17px;color:var(--mute)}
+.prow .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meter{height:6px;background:#1d3236;position:relative;overflow:hidden}
+.meter i{position:absolute;left:0;top:0;bottom:0;background:var(--vital);transition:width .2s}
+.meter i.mid{background:var(--warn)}.meter i.low{background:var(--alarm)}
+.chip{font-size:11px;letter-spacing:.08em;text-transform:uppercase;text-align:center;padding:2px 0;border:1px solid var(--line);color:var(--mute)}
+.chip.ok{color:var(--vital);border-color:var(--vital)}
+.chip.tox{color:var(--warn);border-color:var(--warn)}
+.chip.crit{color:var(--alarm);border-color:var(--alarm);animation:blink .8s steps(2) infinite}
+.chip.done{background:var(--vital);color:var(--night);border-color:var(--vital);font-weight:700}
+.chip.dead{background:#2a2f31;color:#9aa3a5;border-color:#2a2f31;text-decoration:line-through}
+.prow.dead .nm{color:#6d7a7c}
+@keyframes blink{50%{opacity:.35}}
+
+/* Fadenkreuz & Patientenkurve */
+#cross{position:absolute;left:50%;top:50%;width:22px;height:22px;transform:translate(-50%,-50%);pointer-events:none}
+#cross::before,#cross::after{content:"";position:absolute;background:rgba(226,235,233,.85)}
+#cross::before{left:10px;top:0;width:2px;height:22px}
+#cross::after{top:10px;left:0;height:2px;width:22px}
+#cross.on::before,#cross.on::after{background:var(--vital)}
+#card{position:absolute;left:50%;top:calc(50% + 26px);transform:translateX(-50%);width:270px;max-width:calc(100% - 32px);background:rgba(235,241,238,.95);color:#13262a;padding:9px 12px 10px;pointer-events:none;border-top:5px solid var(--scrub);box-shadow:0 8px 24px rgba(0,0,0,.45)}
+#card .ch{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+#card .ch b{font:900 20px/1.05 var(--display);letter-spacing:.02em;text-transform:uppercase}
+#card .ch span{font-family:var(--mono);font-size:18px;color:#4c6266}
+#cDiag{font-weight:700;font-size:15px;margin-top:2px}
+#cMed{font-size:13px;color:#4c6266;margin-bottom:6px}
+#cMed i{font-style:normal;font-weight:700}
+.crow{display:grid;grid-template-columns:76px 1fr 46px;gap:8px;align-items:center;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#4c6266;margin-top:4px}
+.crow em{font:normal 19px/1 var(--mono);color:#13262a;text-align:right;letter-spacing:0}
+#card .meter{height:9px;background:#cfdbd8}
+#cLv{background:#7d98a0!important}
+#cLv.ok{background:#1fa36b!important}#cLv.tox{background:#e48a1a!important}
+#cGuide{font-family:var(--mono);font-size:17px;color:#4c6266;margin-top:6px;line-height:1.05}
+#cState{margin-top:5px;font-weight:700;font-size:14px}
+#cState.ok{color:#14855a}#cState.tox,#cState.crit{color:#c2271f}#cState.dead{color:#5a6567}
+
+/* Meldungen */
+#toasts{position:absolute;left:50%;top:12px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:4px;width:min(520px,calc(100% - 290px));pointer-events:none}
+.toast{background:rgba(7,17,19,.86);border-left:3px solid var(--mute);padding:5px 10px;font-size:14px;transition:opacity .5s;max-width:100%}
+.toast.ok{border-color:var(--vital)}.toast.warn{border-color:var(--warn)}.toast.alarm{border-color:var(--alarm);color:#ffd7d3}
+.toast.out{opacity:0}
+#flash{position:absolute;inset:0;background:var(--alarm);opacity:0;pointer-events:none;mix-blend-mode:screen}
+
+/* Statusleiste */
+#bar{display:flex;flex-wrap:wrap;align-items:stretch;background:linear-gradient(var(--steel),var(--panel));border-top:3px solid var(--line);padding-inline:16px;padding-bottom:env(safe-area-inset-bottom,0px)}
+.cell{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:6px 14px;border-right:1px solid var(--line);min-width:0}
+.cell:last-child{border-right:0}
+.lab{font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--mute)}
+.big{font:34px/0.9 var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
+.big small{font-size:20px;color:var(--mute)}
+.hint{font-size:11px;color:var(--mute)}
+#meds{display:flex;flex-direction:row;gap:6px;padding-left:0}
+.med{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:7px;align-items:center;padding:4px 8px 4px 6px;border:1px solid transparent;min-width:96px}
+.med.sel{border-color:var(--scrub);background:rgba(60,184,168,.12)}
+.med .vial{grid-row:1/3;width:10px;height:30px;border:1px solid rgba(226,235,233,.6);position:relative;overflow:hidden}
+.med .vial i{position:absolute;left:0;right:0;bottom:0}
+.med b{font-size:14px;line-height:1.1}
+.med b kbd{font:15px var(--mono);color:var(--mute);margin-right:4px}
+.med span{font-size:12px;color:var(--mute);display:flex;justify-content:space-between;gap:6px}
+.med span em{font:normal 17px/1 var(--mono);color:var(--ink)}
+.med.empty span em{color:var(--alarm)}
+#hp.low{color:var(--alarm)}
+
+/* Overlays */
+.overlay{position:absolute;inset:0;display:grid;place-items:center;overflow:auto;padding-block:24px;padding-inline:16px;background:rgba(5,12,14,.84);backdrop-filter:blur(2px)}
+.sheet{width:100%;max-width:780px}
+.kicker{font-size:13px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:var(--scrub)}
+.logo{display:flex;align-items:center;gap:18px;margin:6px 0 4px}
+.logo .rx{width:clamp(44px,8vw,78px);aspect-ratio:1;background:var(--cross);clip-path:polygon(35% 0,65% 0,65% 35%,100% 35%,100% 65%,65% 65%,65% 100%,35% 100%,35% 65%,0 65%,0 35%,35% 35%);flex:none}
+.logo h1{margin:0;font:900 clamp(72px,15vw,156px)/.82 var(--display);letter-spacing:.03em;color:var(--ink);text-shadow:0 4px 0 #3a0d0b}
+.sheet h2{font:900 clamp(34px,6vw,58px)/.95 var(--display);margin:4px 0 10px;text-transform:uppercase;letter-spacing:.02em;text-wrap:balance}
+.sheet p{max-width:62ch;line-height:1.45;color:#c5d3d1;margin:6px 0}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:22px;margin:20px 0}
+.cols h3{margin:0 0 8px;font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--mute);border-bottom:1px solid var(--line);padding-bottom:5px}
+.rules{margin:0;padding-left:18px;line-height:1.45;color:#d2dedc}
+.rules li{margin-bottom:5px}
+.rules b{color:var(--ink)}
+.keys{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:14px;align-items:baseline}
+kbd{font:17px/1 var(--mono);background:#1c3135;border:1px solid var(--line);border-bottom-width:2px;padding:1px 6px;color:var(--ink);white-space:nowrap}
+.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:18px}
+.legend div{border:1px solid var(--line);padding:7px 9px;font-size:13px;color:var(--mute);border-top:4px solid var(--c)}
+.legend b{display:block;color:var(--ink);font-size:15px}
+.btn{font:900 22px/1 var(--display);letter-spacing:.1em;text-transform:uppercase;background:var(--cross);color:#fff;border:0;padding:14px 26px 12px;cursor:pointer;box-shadow:0 4px 0 #6d1712}
+.btn:hover{filter:brightness(1.1)}
+.btn:active{transform:translateY(2px);box-shadow:0 2px 0 #6d1712}
+.btn:focus-visible{outline:3px solid var(--warn);outline-offset:3px}
+.btn.ghost{background:transparent;border:1px solid var(--line);box-shadow:none;color:var(--ink)}
+.actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:18px}
+.fine{font-size:12px;color:var(--mute)}
+table.res{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+.res-wrap{overflow-x:auto}
+table.res th{text-align:left;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);font-weight:600;padding:4px 8px;border-bottom:1px solid var(--line)}
+table.res td{padding:6px 8px;border-bottom:1px solid rgba(42,65,70,.6)}
+table.res td.n{font:19px/1 var(--mono);text-align:right}
+.tot{display:flex;gap:28px;flex-wrap:wrap;margin-top:6px}
+.tot div{display:flex;flex-direction:column}
+.ok-t{color:var(--vital)}.bad-t{color:var(--alarm)}
+
+/* Touch */
+#touch{position:absolute;inset:0;pointer-events:none}
+#stickZone{position:absolute;left:16px;bottom:16px;width:130px;height:130px;border-radius:50%;border:2px solid rgba(226,235,233,.25);background:rgba(7,17,19,.35);pointer-events:auto;touch-action:none}
+#stickKnob{position:absolute;left:40px;top:40px;width:50px;height:50px;border-radius:50%;background:rgba(226,235,233,.35)}
+#tbtns{position:absolute;right:16px;bottom:16px;display:grid;grid-template-columns:repeat(3,58px);gap:8px;pointer-events:auto}
+#tbtns button{height:52px;border:1px solid var(--line);background:rgba(7,17,19,.6);color:var(--ink);font:700 13px var(--body);text-transform:uppercase;letter-spacing:.06em;touch-action:none}
+#tbtns button.main{grid-column:span 2;background:rgba(224,62,54,.75)}
+
+@media (max-width:760px){
+  .big{font-size:26px}.cell{padding:4px 8px}.med{min-width:0;padding:3px 5px}.med .vial{height:24px}
+  #board{width:200px;transform-origin:top left}
+  .prow{grid-template-columns:16px minmax(0,1fr) 34px 58px;font-size:12px}
+  #toasts{width:calc(100% - 32px);top:auto;bottom:12px}
+  .hint{display:none}
+}
+@media (prefers-reduced-motion:reduce){.chip.crit{animation:none}.toast{transition:none}}
+</style>
+
+<div id="app">
+  <div id="viewport">
+    <canvas id="view" width="400" height="240"></canvas>
+    <div id="flash"></div>
+    <div id="board"><h2><span>Station</span><b id="boardTitle">Notaufnahme</b></h2><div id="rows"></div></div>
+    <div id="cross"></div>
+    <div id="card" hidden>
+      <div class="ch"><b id="cName"></b><span id="cMeta"></span></div>
+      <div id="cDiag"></div>
+      <div id="cMed"></div>
+      <div class="crow"><span>Zustand</span><div class="meter"><i id="cHp"></i></div><em id="cHpN"></em></div>
+      <div class="crow"><span>Wirkspiegel</span><div class="meter"><i id="cLv"></i></div><em id="cLvN"></em></div>
+      <div id="cGuide"></div>
+      <div id="cState"></div>
+    </div>
+    <div id="toasts"></div>
+    <div id="touch" hidden>
+      <div id="stickZone"><div id="stickKnob"></div></div>
+      <div id="tbtns">
+        <button type="button" data-act="minus">Dosis −</button>
+        <button type="button" data-act="plus">Dosis +</button>
+        <button type="button" data-act="med">Med.</button>
+        <button type="button" data-act="fire" class="main">Spritze</button>
+        <button type="button" data-act="spray">Spray</button>
+      </div>
+    </div>
+
+    <div class="overlay" id="ovTitle">
+      <div class="sheet">
+        <div class="kicker">Klinikum St. Elisabeth · Nachtschicht</div>
+        <div class="logo"><div class="rx"></div><h1>DOSIS</h1></div>
+        <p>Drei Stationen, je bis zu fünf Patienten, eine Nacht. Du hast vier Medikamente und eine Spritzenpistole. Jeder Patient braucht genau das richtige Mittel in genau der richtigen Menge.</p>
+        <div class="cols">
+          <div>
+            <h3>Dienstanweisung</h3>
+            <ul class="rules">
+              <li><b>Unterdosiert:</b> Der Zustand verschlechtert sich weiter. Bei 0 % stirbt der Patient.</li>
+              <li><b>Überdosiert:</b> Vergiftung. Über der Grenzdosis stirbt der Patient sofort.</li>
+              <li>Halte den <b>Wirkspiegel im grünen Bereich</b>, bis der Patient versorgt ist. Der Spiegel baut sich mit der Zeit ab.</li>
+              <li>Je näher an der idealen Dosis, desto mehr Punkte. Mindestens 3 von 5 Patienten müssen überleben.</li>
+              <li><b>Keime</b> greifen dich und die Patienten an. Desinfektionsspray hilft.</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Steuerung</h3>
+            <div class="keys">
+              <span><kbd>W A S D</kbd></span><span>Laufen, <kbd>Shift</kbd> rennen</span>
+              <span><kbd>Maus</kbd></span><span>Umsehen (oder <kbd>←</kbd> <kbd>→</kbd>)</span>
+              <span><kbd>Linksklick</kbd></span><span>Spritze abfeuern</span>
+              <span><kbd>Q</kbd> <kbd>E</kbd></span><span>Dosis −/+ 0,5 ml (auch Mausrad)</span>
+              <span><kbd>1</kbd>–<kbd>4</kbd></span><span>Medikament wählen</span>
+              <span><kbd>Rechtsklick</kbd></span><span>Desinfektion sprühen (oder <kbd>Leertaste</kbd>)</span>
+              <span><kbd>M</kbd></span><span>Lageplan ein/aus</span>
+              <span><kbd>P</kbd></span><span>Pause</span>
+            </div>
+          </div>
+        </div>
+        <div class="legend" id="legend"></div>
+        <div class="actions">
+          <button class="btn" id="btnStart" type="button">Schicht beginnen</button>
+          <span class="fine">Alle Medikamente, Diagnosen und Dosierungen sind frei erfunden.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="overlay" id="ovMsg" hidden>
+      <div class="sheet" id="msgSheet"></div>
+    </div>
+  </div>
+
+  <div id="bar">
+    <div class="cell" id="meds"></div>
+    <div class="cell"><span class="lab">Dosis</span><span class="big" id="dose">4,0<small> ml</small></span><span class="hint">Q / E · Mausrad</span></div>
+    <div class="cell"><span class="lab">Gesundheit</span><span class="big" id="hp">100<small>%</small></span></div>
+    <div class="cell"><span class="lab">Desinfektion</span><span class="big" id="spr">100<small>%</small></span></div>
+    <div class="cell"><span class="lab">Punkte</span><span class="big" id="score">0</span></div>
+    <div class="cell"><span class="lab" id="shiftLab">Schicht 1/3</span><span class="big" id="clock">22:00</span></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const $=s=>document.querySelector(s);
+const cvs=$('#view'),ctx=cvs.getContext('2d');
+const rand=(a,b)=>a+Math.random()*(b-a), rint=(a,b)=>Math.floor(rand(a,b+1)), pick=a=>a[Math.floor(Math.random()*a.length)];
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const fmt=v=>v.toFixed(1).replace('.',',');
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+
+/* ---------- Spieldaten ---------- */
+const MEDS=[
+  {name:'Analgon',use:'Schmerz',color:'#e8493f',info:'Brüche, Koliken, Verbrennungen'},
+  {name:'Kardion',use:'Herz',color:'#4a8fe8',info:'Rhythmus, Blutdruck, Brustenge'},
+  {name:'Glukosan',use:'Stoffwechsel',color:'#f2c230',info:'Zucker, Stoffwechselkrisen'},
+  {name:'Pulmex',use:'Atmung',color:'#4cd08a',info:'Asthma, Lunge, Atemnot'},
+];
+const DIAG=[
+  ['Unterarmfraktur','Nierenkolik','Verbrennung 2. Grades','Bandscheibenvorfall','Schulterluxation'],
+  ['Vorhofflimmern','Hypertensive Krise','Tachykardie','Angina pectoris'],
+  ['Unterzuckerung','Diabetische Entgleisung','Stoffwechselkrise'],
+  ['Asthmaanfall','Lungenentzündung','Akute Atemnot','Lungenödem'],
+];
+const NAMES=['Helga Brandt','Jürgen Wolff','Aylin Demir','Karl-Heinz Roth','Sophie Lehmann','Mehmet Kaya','Ingrid Vogel','Tobias Schulz','Marta Nowak','Günther Fuchs','Lena Hartmann','Dieter Krause','Fatma Yılmaz','Ole Petersen','Renate Becker','Paul Zimmer','Elif Arslan','Werner Haas'];
+const BLANKETS=['#b9cfe0','#d9c9ae','#b5d1bf','#d4bfd0'];
+
+const LEVELS=[
+ {name:'Notaufnahme',clock:22*60,brief:'Fünf Neuzugänge. Hier lernst du das Handwerk: Auf der Patientenkurve steht noch, welches Medikament gebraucht wird. Ziele auf einen Patienten, um seine Kurve zu sehen.',
+  theme:{tile:'#dbe5e4',grout:'#a3b5b3',low:'#adc3c4',stripe:'#2e74b5',curtain:'#5a8fa8',floorA:'#8a9da1',floorB:'#77898d',ceil:'#a9b3b2',fog:[9,18,22],amb:1},
+  cure:7,decay:1,half:[1.5,1.9],tox:3.6,germCap:3,germEvery:0,germSpeed:1.0,stock:[5,5,5,5],showMed:true,startA:0,
+  map:[
+  "########################",
+  "#S......#.......#......#",
+  "#.......#...P...C...P..#",
+  "#..M....C.......#......#",
+  "#.......#...H...#......#",
+  "###..####.......###..###",
+  "#......................#",
+  "#..........K...........#",
+  "##WW#..####..####..#WW##",
+  "#.......#.......#......#",
+  "#..P....C...A...C...P..#",
+  "#.......#.......#......#",
+  "#...K...#...P...#..M...#",
+  "####XX##########XX######"]},
+ {name:'Intensivstation',clock:1*60+30,brief:'Ab jetzt steht das Medikament nicht mehr auf der Kurve. Lies die Diagnose und wähle selbst. Die Zielbereiche sind enger, die Patienten bauen schneller ab, und die Keime vermehren sich.',
+  theme:{tile:'#cfe3dc',grout:'#93b0a7',low:'#8fb3a8',stripe:'#1f8a74',curtain:'#7c6a9e',floorA:'#7f9690',floorB:'#6d837d',ceil:'#a0afab',fog:[7,16,17],amb:.92},
+  cure:9,decay:1.25,half:[1.15,1.5],tox:3.0,germCap:5,germEvery:30,germSpeed:1.25,stock:[4,4,4,4],showMed:false,startA:0,
+  map:[
+  "##WW##WW##WW##WW##WW##WW##",
+  "#....#....#....#....#....#",
+  "#.P..C....C..P.C....C.P..#",
+  "#....#....#....#....#....#",
+  "##..###..###..###..###..##",
+  "#........................#",
+  "#S.......K.......M.......#",
+  "#........................#",
+  "##..###..###..###..###..##",
+  "#....#....#....#....#....#",
+  "#.A..C.P..C....C.P..C..K.#",
+  "#....#....#.H..#....#....#",
+  "######LLLL######LLLL######"]},
+ {name:'OP-Trakt',clock:4*60,brief:'Die letzte Station. Enge Zielbereiche, schneller Abbau, viele Keime. Teile dir die Spritzen gut ein und halte die Patienten am Leben, bis die Frühschicht kommt.',
+  theme:{tile:'#c4d8cf',grout:'#87a497',low:'#5f8b7c',stripe:'#b8432f',curtain:'#3f7d6a',floorA:'#6f8580',floorB:'#5e736e',ceil:'#94a39f',fog:[5,12,13],amb:.82},
+  cure:10,decay:1.5,half:[0.95,1.25],tox:2.6,germCap:7,germEvery:22,germSpeed:1.45,stock:[4,4,4,4],showMed:false,startA:Math.PI/2,
+  map:[
+  "############################",
+  "#S...#.......O.......#....K#",
+  "#....#..P....#...P...#.....#",
+  "#....O.......#.......O..M..#",
+  "#....#.......#.......#.....#",
+  "###.####..#######..######.##",
+  "#.........#.....#..........#",
+  "#..K......X..H..X......K...#",
+  "#.........#.....#..........#",
+  "##.######.###.###.######.###",
+  "#......#...........#.......#",
+  "#..P...O.....K.....O...P...#",
+  "#......#...........#.......#",
+  "#..A...#####.#.#####...M...#",
+  "#......#...........#.......#",
+  "#..........P...............#",
+  "############################"]},
+];
+
+/* ---------- Texturen ---------- */
+const TS=64;
+function tex(fn){const c=document.createElement('canvas');c.width=c.height=TS;const g=c.getContext('2d');fn(g);return new Uint32Array(g.getImageData(0,0,TS,TS).data.buffer)}
+function speckle(g,n,col,a){g.fillStyle=col;for(let i=0;i<n;i++){g.globalAlpha=Math.random()*a;g.fillRect(Math.random()*64|0,Math.random()*64|0,1,1)}g.globalAlpha=1}
+function circ(g,x,y,r,col){g.fillStyle=col;g.beginPath();g.arc(x,y,r,0,Math.PI*2);g.fill()}
+function ell(g,x,y,rx,ry,col){g.fillStyle=col;g.beginPath();g.ellipse(x,y,rx,ry,0,0,Math.PI*2);g.fill()}
+function tileWall(g,th){
+  g.fillStyle=th.tile;g.fillRect(0,0,64,64);
+  g.fillStyle=th.grout;for(let i=0;i<64;i+=16)g.fillRect(i,0,1,36);for(let i=0;i<36;i+=12)g.fillRect(0,i,64,1);
+  g.fillStyle=th.stripe;g.fillRect(0,36,64,4);
+  g.fillStyle=th.low;g.fillRect(0,40,64,24);
+  g.fillStyle='#c8d0d3';g.fillRect(0,44,64,2);g.fillStyle='#7f8b8f';g.fillRect(0,46,64,1);
+  speckle(g,160,'#000',.12);speckle(g,80,'#fff',.25);
+}
+let T={},WT=[];
+function buildTextures(th){
+  WT=[
+    tex(g=>tileWall(g,th)),
+    tex(g=>{tileWall(g,th);g.fillStyle='#f3f5f5';g.fillRect(16,6,32,26);g.fillStyle='#9aa5a8';g.fillRect(16,31,32,1);
+      g.fillStyle='#d8322b';g.fillRect(28,9,8,20);g.fillRect(22,15,20,8)}),
+    tex(g=>{for(let x=0;x<64;x++){const s=0.72+0.28*Math.sin(x*0.55);g.fillStyle=th.curtain;g.globalAlpha=1;g.fillRect(x,0,1,64);g.fillStyle='#000';g.globalAlpha=(1-s)*0.8;g.fillRect(x,0,1,64)}
+      g.globalAlpha=1;g.fillStyle='#c9d0d3';g.fillRect(0,0,64,3);for(let x=3;x<64;x+=8)circ(g,x,4,1.6,'#e6eaec');g.fillStyle='rgba(0,0,0,.25)';g.fillRect(0,60,64,4)}),
+    tex(g=>{g.fillStyle=th.tile;g.fillRect(0,0,64,64);g.fillStyle='#c5ced1';g.fillRect(4,4,56,46);
+      const gr=g.createLinearGradient(0,7,0,47);gr.addColorStop(0,'#0b1730');gr.addColorStop(1,'#23395a');g.fillStyle=gr;g.fillRect(7,7,50,40);
+      g.fillStyle='#16233a';g.fillRect(10,30,9,17);g.fillRect(22,24,12,23);g.fillRect(38,33,8,14);g.fillRect(48,27,8,20);
+      g.fillStyle='#f6d36b';for(let i=0;i<14;i++)g.fillRect(rint(10,54),rint(27,44),1,1);
+      circ(g,47,15,3,'#e7ecef');g.fillStyle='#c5ced1';g.fillRect(31,7,2,40);g.fillRect(7,26,50,2);
+      g.fillStyle=th.low;g.fillRect(0,50,64,14);g.fillStyle='#e0e6e8';g.fillRect(0,50,64,2)}),
+    tex(g=>{g.fillStyle='#8d989d';g.fillRect(0,0,64,64);g.fillStyle='#6b767b';g.fillRect(31,0,2,64);g.fillRect(0,0,64,2);g.fillRect(0,62,64,2);
+      for(const ox of [0,32]){for(let y=8;y<20;y+=3){g.fillStyle='#4b5458';g.fillRect(ox+8,y,16,1)}g.fillStyle='#c7cfd2';g.fillRect(ox+25,30,3,9);g.fillStyle='#f0f2f2';g.fillRect(ox+8,24,10,6);g.fillStyle='#55606a';g.fillRect(ox+9,26,8,1)}
+      speckle(g,120,'#000',.2)}),
+    tex(g=>{g.fillStyle='#2b5f68';g.fillRect(0,0,64,64);g.fillStyle='#24525a';g.fillRect(31,8,2,56);g.fillStyle='#9fb0b4';g.fillRect(0,6,64,2);
+      circ(g,18,26,7,'#a8bcc1');circ(g,18,26,5.5,'#122326');circ(g,46,26,7,'#a8bcc1');circ(g,46,26,5.5,'#122326');
+      g.fillStyle='#b9c6c9';g.fillRect(8,42,16,10);g.fillRect(40,42,16,10);
+      g.fillStyle='#1a1d1e';g.fillRect(20,0,24,6);g.fillStyle='#ff4a3a';g.fillRect(22,1,20,4);g.fillStyle='#ffe0dc';g.fillRect(27,2,2,2);g.fillRect(31,2,2,2);g.fillRect(35,2,2,2);
+      speckle(g,90,'#000',.25)}),
+  ];
+  T.floor=tex(g=>{g.fillStyle=th.floorA;g.fillRect(0,0,64,64);g.fillStyle=th.floorB;g.fillRect(0,0,32,32);g.fillRect(32,32,32,32);speckle(g,260,'#fff',.18);speckle(g,200,'#000',.18);g.fillStyle='rgba(0,0,0,.25)';g.fillRect(0,0,64,1);g.fillRect(0,0,1,64)});
+  T.ceil=tex(g=>{g.fillStyle=th.ceil;g.fillRect(0,0,64,64);speckle(g,400,'#000',.18);g.fillStyle='rgba(0,0,0,.35)';g.fillRect(0,0,64,2);g.fillRect(0,0,2,64);g.fillRect(31,0,1,64);g.fillRect(0,31,64,1)});
+  T.light=tex(g=>{g.fillStyle=th.ceil;g.fillRect(0,0,64,64);g.fillStyle='#d9e0e2';g.fillRect(6,6,52,52);g.fillStyle='#fbfff6';g.fillRect(9,9,46,46);g.fillStyle='rgba(180,200,205,.6)';for(let x=12;x<55;x+=6)g.fillRect(x,9,1,46)});
+  FOG=th.fog;AMB=th.amb;
+}
+function bedTex(mode,blanket){return tex(g=>{
+  g.fillStyle='#6d7a80';g.fillRect(9,48,3,11);g.fillRect(52,48,3,11);
+  circ(g,10.5,60,2.6,'#22292c');circ(g,53.5,60,2.6,'#22292c');
+  g.fillStyle='#45606a';g.fillRect(2,27,4,23);g.fillStyle='#6f8c95';g.fillRect(2,27,4,2);
+  g.fillStyle='#45606a';g.fillRect(58,35,4,15);
+  g.fillStyle='#a2aeb3';g.fillRect(4,45,56,4);g.fillStyle='#55626a';g.fillRect(4,49,56,1);
+  g.fillStyle='#e9eef0';g.fillRect(6,39,52,6);g.fillStyle='#bfcbd0';g.fillRect(6,44,52,1);
+  if(mode==='sick'){
+    ell(g,13,36,7,4,'#f7f9fa');
+    circ(g,13,32,5,'#e2b28e');g.fillStyle='#5b3b28';g.beginPath();g.arc(13,31,5.2,Math.PI*1.05,Math.PI*1.95);g.fill();
+    g.fillStyle='#6b4a37';g.fillRect(14,33,3,1);
+    g.fillStyle=blanket;g.beginPath();g.moveTo(17,40);g.quadraticCurveTo(22,31,34,32);g.quadraticCurveTo(48,31,58,37);g.lineTo(58,45);g.lineTo(17,45);g.closePath();g.fill();
+    g.strokeStyle='rgba(0,0,0,.18)';g.lineWidth=1;g.beginPath();g.moveTo(26,36);g.lineTo(30,44);g.moveTo(42,34);g.lineTo(44,44);g.stroke();
+    g.fillStyle='#f4f6f7';g.fillRect(17,38,4,7);
+  }else if(mode==='cured'){
+    g.fillStyle='#f7f9fa';g.fillRect(7,22,8,18);
+    g.fillStyle='#8fb9d3';g.fillRect(13,25,13,15);g.fillStyle='#6f9bb8';for(let i=0;i<5;i++)g.fillRect(15+i*2,28+(i%2)*4,1,1);
+    circ(g,19,19,5.2,'#e2b28e');g.fillStyle='#5b3b28';g.beginPath();g.arc(19,18,5.4,Math.PI*1.05,Math.PI*1.95);g.fill();
+    g.fillStyle='#4a2f22';g.fillRect(20,18,1,1);g.fillRect(23,18,1,1);g.strokeStyle='#7a3e2e';g.beginPath();g.arc(21.5,20.5,1.8,0.2,Math.PI-0.2);g.stroke();
+    g.fillStyle='#e2b28e';g.fillRect(25,30,7,3);
+    g.fillStyle=blanket;g.beginPath();g.moveTo(18,40);g.quadraticCurveTo(36,33,58,37);g.lineTo(58,45);g.lineTo(18,45);g.closePath();g.fill();
+  }else{
+    g.fillStyle='#d6dbde';g.beginPath();g.moveTo(6,40);g.quadraticCurveTo(8,28,15,29);g.quadraticCurveTo(21,30,22,35);g.quadraticCurveTo(40,30,59,36);g.lineTo(60,46);g.lineTo(6,46);g.closePath();g.fill();
+    g.strokeStyle='rgba(60,70,74,.3)';g.beginPath();g.moveTo(24,36);g.lineTo(26,45);g.moveTo(38,33);g.lineTo(37,45);g.moveTo(50,35);g.lineTo(52,45);g.stroke();
+  }
+})}
+function iconTex(col,kind){return tex(g=>{circ(g,32,32,26,'#0c1517');circ(g,32,32,22,col);g.fillStyle='#fff';
+  if(kind==='check'){g.strokeStyle='#fff';g.lineWidth=7;g.lineCap='round';g.beginPath();g.moveTo(21,33);g.lineTo(29,41);g.lineTo(44,24);g.stroke()}
+  else if(kind==='tox'){g.fillRect(28,16,8,22);g.fillRect(28,42,8,7)}
+  else{g.fillRect(28,18,8,28);g.fillRect(18,28,28,8)}})}
+function germTex(f){return tex(g=>{
+  const cx=32,cy=34;g.fillStyle='#4f9e2f';
+  for(let i=0;i<10;i++){const a=i/10*Math.PI*2+f*0.3;circ(g,cx+Math.cos(a)*21,cy+Math.sin(a)*19,3.4,'#8bd44a')}
+  g.beginPath();for(let i=0;i<=20;i++){const a=i/20*Math.PI*2,r=17+Math.sin(a*5+f*2)*2;i?g.lineTo(cx+Math.cos(a)*r,cy+Math.sin(a)*r*0.92):g.moveTo(cx+r,cy)}g.closePath();
+  const gr=g.createRadialGradient(cx-5,cy-6,2,cx,cy,19);gr.addColorStop(0,'#a8e86a');gr.addColorStop(1,'#3d7f24');g.fillStyle=gr;g.fill();
+  circ(g,cx+7,cy+6,3,'#5e9e33');circ(g,cx-9,cy+8,2,'#5e9e33');
+  ell(g,cx-6,cy-4,4.5,5.5,'#fff');ell(g,cx+6,cy-4,4.5,5.5,'#fff');circ(g,cx-5,cy-3+f,2.2,'#c0142a');circ(g,cx+7,cy-3+f,2.2,'#c0142a');
+  g.fillStyle='#1c330f';g.beginPath();g.moveTo(cx-8,cy+5);for(let i=0;i<=4;i++)g.lineTo(cx-8+i*4,cy+5+(i%2?3+f:0));g.lineTo(cx+8,cy+9);g.lineTo(cx-8,cy+9);g.fill();
+})}
+function buildSprites(){
+  T.bedSick=BLANKETS.map(b=>bedTex('sick',b));T.bedCured=BLANKETS.map(b=>bedTex('cured',b));T.bedDead=bedTex('dead');
+  T.icoG=iconTex('#2fb36f');T.icoY=iconTex('#e5a12a');T.icoR=iconTex('#e2382e');T.icoTox=iconTex('#e2382e','tox');T.icoOk=iconTex('#2fb36f','check');
+  T.germ=[germTex(0),germTex(1)];
+  T.mist=tex(g=>{const gr=g.createRadialGradient(32,32,2,32,32,28);gr.addColorStop(0,'rgba(240,250,255,1)');gr.addColorStop(.6,'rgba(220,240,250,.9)');gr.addColorStop(1,'rgba(220,240,250,0)');g.fillStyle=gr;g.fillRect(0,0,64,64)});
+  T.dart=MEDS.map(m=>tex(g=>{g.fillStyle='#e9eef0';g.fillRect(8,26,40,12);g.fillStyle=m.color;g.fillRect(12,28,30,8);g.fillStyle='#cfd6da';g.fillRect(48,30,14,3);g.fillRect(0,24,8,16)}));
+  T.medkit=tex(g=>{g.fillStyle='#7b878c';g.fillRect(24,30,16,4);g.fillStyle='#f2f4f4';g.fillRect(8,34,48,28);g.fillStyle='#c6cfd2';g.fillRect(8,58,48,4);g.fillStyle='#d8322b';g.fillRect(28,38,8,20);g.fillRect(22,44,20,8)});
+  T.spray=tex(g=>{g.fillStyle='#2d6fb6';g.fillRect(24,26,16,38);g.fillStyle='#f3f6f7';g.fillRect(24,36,16,16);g.fillStyle='#2d6fb6';g.fillRect(27,41,10,2);g.fillRect(27,45,7,2);g.fillStyle='#e6eaec';g.fillRect(27,16,10,10);g.fillStyle='#253034';g.fillRect(30,10,12,6)});
+  T.coffee=tex(g=>{g.strokeStyle='rgba(235,240,242,.7)';g.lineWidth=2;g.beginPath();g.moveTo(28,32);g.bezierCurveTo(24,26,32,22,28,14);g.moveTo(36,32);g.bezierCurveTo(32,26,40,22,36,14);g.stroke();
+    g.fillStyle='#f2f4f4';g.fillRect(20,36,24,26);g.strokeStyle='#f2f4f4';g.lineWidth=4;g.beginPath();g.arc(45,48,6,-1.4,1.4);g.stroke();g.fillStyle='#b8432f';g.fillRect(20,44,24,6);g.fillStyle='#4a2c1d';g.fillRect(22,36,20,3)});
+  T.splat=tex(g=>{ell(g,32,59,22,5,'#4f8f27');ell(g,26,58,9,3,'#7cc444');circ(g,48,56,2,'#4f8f27');circ(g,12,60,1.5,'#4f8f27')});
+}
+
+/* ---------- Zustand ---------- */
+let W=400,H=240,F=200,PLANE=1,img,buf,zbuf,FOG=[8,18,20],AMB=1;
+let MW=0,MH=0,map=new Uint8Array(1);
+const P={x:2,y:2,a:0,hp:100,spray:100,stock:[0,0,0,0],med:0,dose:4};
+let patients=[],germs=[],pickups=[],darts=[],mist=[],splats=[],spawns=[];
+let LV=0,state='title',score=0,levelStartScore=0,levelTime=0,lastSpawn=0,endTimer=-1;
+let fireCD=0,fireT=9,walkPhase=0,moveAmt=0,sprayHeld=false,sprayAnim=0,sprayTick=0,hurtA=0,hurtSfx=0,showMap=false,time=0,beatT=0,target=null;
+const keys={};
+
+function resize(){
+  const r=$('#viewport').getBoundingClientRect();
+  const asp=clamp(r.width/Math.max(1,r.height),0.5,2.8);
+  H=r.width<700?200:240;W=Math.max(100,Math.round(H*asp)&~1);
+  cvs.width=W;cvs.height=H;F=H*0.82;PLANE=(W/2)/F;
+  img=ctx.createImageData(W,H);buf=new Uint32Array(img.data.buffer);zbuf=new Float32Array(W);
+}
+const WALLS={'#':1,'X':2,'C':3,'W':4,'L':5,'O':6};
+function isWall(x,y){if(x<0||y<0||x>=MW||y>=MH)return true;return map[(y|0)*MW+(x|0)]>0}
+function solid(x,y,r){
+  if(isWall(x-r,y-r)||isWall(x+r,y-r)||isWall(x-r,y+r)||isWall(x+r,y+r))return true;
+  for(const p of patients){const dx=p.x-x,dy=p.y-y;if(dx*dx+dy*dy<(r+0.3)*(r+0.3))return true}
+  return false;
+}
+function tryMove(o,dx,dy,r){if(!solid(o.x+dx,o.y,r))o.x+=dx;if(!solid(o.x,o.y+dy,r))o.y+=dy}
+function los(ax,ay,bx,by){const d=Math.hypot(bx-ax,by-ay),n=Math.ceil(d/0.1);for(let i=1;i<n;i++){const t=i/n;if(isWall(ax+(bx-ax)*t,ay+(by-ay)*t))return false}return true}
+
+function loadLevel(i){
+  LV=i;const cfg=LEVELS[i];buildTextures(cfg.theme);
+  const rows=cfg.map;MH=rows.length;MW=Math.max(...rows.map(r=>r.length));map=new Uint8Array(MW*MH);
+  patients=[];germs=[];pickups=[];darts=[];mist=[];splats=[];spawns=[];
+  const names=shuffle(NAMES.slice()),meds=shuffle([0,1,2,3,rint(0,3)]);let bed=0;
+  for(let y=0;y<MH;y++)for(let x=0;x<MW;x++){
+    let ch=rows[y][x]||'#';
+    if((x===0||y===0||x===MW-1||y===MH-1)&&!WALLS[ch])ch='#';
+    if(WALLS[ch]){map[y*MW+x]=WALLS[ch];continue}
+    const cx=x+.5,cy=y+.5;
+    if(ch==='S'){P.x=cx;P.y=cy}
+    else if(ch==='P'){patients.push(makePatient(cx,cy,++bed,names.pop(),meds[bed-1],cfg))}
+    else if(ch==='K'){spawns.push([cx,cy]);germs.push(makeGerm(cx,cy))}
+    else if(ch==='M')pickups.push({x:cx,y:cy,type:'med'});
+    else if(ch==='A')pickups.push({x:cx,y:cy,type:'spray'});
+    else if(ch==='H')pickups.push({x:cx,y:cy,type:'coffee'});
+  }
+  P.a=cfg.startA;P.hp=100;P.spray=100;P.stock=cfg.stock.slice();P.med=0;P.dose=4;
+  levelTime=0;lastSpawn=0;endTimer=-1;fireT=9;hurtA=0;levelStartScore=score;
+  buildBoard();buildMeds();
+}
+function makePatient(x,y,bed,name,med,cfg){
+  const half=rand(cfg.half[0],cfg.half[1]),c=rand(3.4,8.6),lo=c-half,hi=c+half;
+  return {x,y,bed,name,med,age:rint(19,91),diag:pick(DIAG[med]),health:rand(64,84),decay:rand(0.85,1.3)*cfg.decay,
+    level:0,lo,hi,c,half,lethal:hi+cfg.tox*rand(0.85,1.15),k:rand(0.03,0.042),
+    gLo:Math.max(1,Math.floor(lo-rand(1,2.5))),gHi:Math.ceil(hi+rand(1,2.5)),
+    inWin:0,state:'krank',cause:'',prec:0,precN:0,shots:0,points:0,warnT:0,crit:false,blanket:rint(0,3),germT:0};
+}
+function makeGerm(x,y){return {x,y,hp:1,alive:true,t:Math.random()*9,wa:Math.random()*7}}
+
+/* ---------- Audio ---------- */
+let AC=null,master=null,noiseBuf=null;
+function audioInit(){if(AC)return;try{AC=new(window.AudioContext||window.webkitAudioContext)();master=AC.createGain();master.gain.value=.5;master.connect(AC.destination);
+  noiseBuf=AC.createBuffer(1,AC.sampleRate,AC.sampleRate);const d=noiseBuf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1}catch(e){AC=null}}
+function tone(f,d,type='sine',v=.15,t0=0,slide=0){if(!AC)return;const t=AC.currentTime+t0,o=AC.createOscillator(),g=AC.createGain();o.type=type;o.frequency.setValueAtTime(f,t);if(slide)o.frequency.exponentialRampToValueAtTime(slide,t+d);
+  g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g);g.connect(master);o.start(t);o.stop(t+d+.05)}
+function noise(d,v=.15,f=2000,type='bandpass'){if(!AC)return;const t=AC.currentTime,s=AC.createBufferSource(),fl=AC.createBiquadFilter(),g=AC.createGain();s.buffer=noiseBuf;fl.type=type;fl.frequency.value=f;
+  g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+d);s.connect(fl);fl.connect(g);g.connect(master);s.start(t);s.stop(t+d+.05)}
+const sfx={
+  shot(){noise(.14,.3,2600);tone(320,.08,'square',.04,0,140)},
+  hit(){tone(190,.12,'sine',.25,0,90)},
+  glass(){noise(.07,.15,6500,'highpass');tone(2600,.05,'sine',.05)},
+  cure(){tone(660,.14,'triangle',.18);tone(880,.14,'triangle',.18,.11);tone(1320,.3,'triangle',.18,.22)},
+  death(){tone(880,1.4,'sine',.13)},
+  alarm(){tone(988,.12,'square',.06);tone(784,.12,'square',.06,.15)},
+  germ(){tone(520,.25,'sawtooth',.07,0,70)},
+  hurt(){tone(130,.18,'square',.1,0,60)},
+  pick(){tone(520,.08,'triangle',.15);tone(780,.12,'triangle',.15,.07)},
+  empty(){tone(160,.1,'square',.06)},
+  spray(){noise(.1,.06,5200,'highpass')},
+  beat(hi){tone(hi?1250:1000,.06,'sine',.05)},
+};
+
+/* ---------- HUD ---------- */
+const tbox=$('#toasts');
+function toast(msg,kind=''){const d=document.createElement('div');d.className='toast '+kind;d.textContent=msg;tbox.prepend(d);while(tbox.children.length>4)tbox.lastChild.remove();
+  setTimeout(()=>d.classList.add('out'),3400);setTimeout(()=>d.remove(),4000)}
+function buildBoard(){
+  $('#boardTitle').textContent=LEVELS[LV].name;const box=$('#rows');box.innerHTML='';
+  for(const p of patients){const row=document.createElement('div');row.className='prow';
+    row.innerHTML=`<span class="bn">${p.bed}</span><span class="nm"></span><div class="meter"><i></i></div><span class="chip"></span>`;
+    row.querySelector('.nm').textContent=p.name;box.appendChild(row);p.el={row,bar:row.querySelector('i'),chip:row.querySelector('.chip')}}
+}
+function buildMeds(){const box=$('#meds');box.innerHTML='';
+  MEDS.forEach((m,i)=>{const d=document.createElement('div');d.className='med';d.innerHTML=`<div class="vial"><i style="background:${m.color}"></i></div><b><kbd>${i+1}</kbd>${m.name}</b><span>${m.use}<em></em></span>`;box.appendChild(d)})}
+function zone(p){return p.level<p.lo?'unter':p.level<=p.hi?'ok':p.level<p.lethal?'tox':'letal'}
+function statusOf(p){
+  if(p.state==='tot')return['Verstorben','dead'];if(p.state==='versorgt')return['Versorgt','done'];
+  const z=zone(p);if(z==='tox')return['Vergiftet','tox'];if(p.health<30)return['Kritisch','crit'];if(z==='ok')return['Stabil','ok'];return['Wartet',''];
+}
+function hpClass(h){return h<30?'low':h<60?'mid':''}
+function updateHUD(){
+  for(const p of patients){const [t,c]=statusOf(p);p.el.bar.style.width=Math.max(0,p.health)+'%';p.el.bar.className=hpClass(p.health);
+    if(p.el.chip.textContent!==t){p.el.chip.textContent=t;p.el.chip.className='chip '+c;p.el.row.classList.toggle('dead',p.state==='tot')}}
+  const medEls=$('#meds').children;
+  for(let i=0;i<4;i++){const e=medEls[i];e.classList.toggle('sel',i===P.med);e.classList.toggle('empty',P.stock[i]<=0);e.querySelector('em').textContent='×'+P.stock[i];e.querySelector('.vial i').style.height=Math.min(100,P.stock[i]*16)+'%'}
+  $('#dose').innerHTML=fmt(P.dose)+'<small> ml</small>';
+  const hp=$('#hp');hp.innerHTML=Math.max(0,Math.ceil(P.hp))+'<small>%</small>';hp.classList.toggle('low',P.hp<30);
+  $('#spr').innerHTML=Math.floor(P.spray)+'<small>%</small>';
+  $('#score').textContent=score;
+  $('#shiftLab').textContent=`Schicht ${LV+1}/3`;
+  const m=(LEVELS[LV].clock+Math.floor(levelTime))%1440;$('#clock').textContent=String(m/60|0).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+  const card=$('#card');$('#cross').classList.toggle('on',!!target);
+  if(!target||state!=='play'){card.hidden=true;return}
+  const p=target;card.hidden=false;
+  $('#cName').textContent=p.name;$('#cMeta').textContent=`Bett ${p.bed} · ${p.age} J.`;
+  $('#cDiag').textContent=p.diag;
+  $('#cMed').innerHTML=LEVELS[LV].showMed?`Verordnung: <i style="color:${MEDS[p.med].color}">${MEDS[p.med].name}</i> (Taste ${p.med+1})`:'Verordnung: nach Diagnose wählen';
+  $('#cHp').style.width=Math.max(0,p.health)+'%';$('#cHp').className=hpClass(p.health);$('#cHpN').textContent=Math.max(0,Math.ceil(p.health))+'%';
+  const z=zone(p);$('#cLv').style.width=Math.min(100,p.level/16*100)+'%';$('#cLv').className=p.state==='krank'?z:'';$('#cLvN').textContent=fmt(p.level);
+  $('#cGuide').textContent=`Leitlinie ${p.gLo}–${p.gHi} ml · Zielbereich ${fmt(Math.min(p.inWin,LEVELS[LV].cure))}/${LEVELS[LV].cure} s`;
+  const st=$('#cState');
+  if(p.state==='tot'){st.textContent=`Verstorben: ${p.cause}`;st.className='dead'}
+  else if(p.state==='versorgt'){st.textContent=`Versorgt · +${p.points} Punkte`;st.className='ok'}
+  else if(z==='ok'){st.textContent='Wirkt. Zustand bessert sich.';st.className='ok'}
+  else if(z==='tox'){st.textContent='Zu hoch dosiert! Vergiftungszeichen.';st.className='tox'}
+  else if(p.level>0.3){st.textContent='Zu wenig. Keine spürbare Wirkung.';st.className=p.health<30?'crit':''}
+  else{st.textContent=p.health<30?'Kritisch! Sofort behandeln.':'Unbehandelt.';st.className=p.health<30?'crit':''}
+}
+
+/* ---------- Spiellogik ---------- */
+function fire(){
+  if(state!=='play'||fireCD>0)return;
+  if(P.stock[P.med]<=0){toast(`Keine ${MEDS[P.med].name}-Spritzen mehr. Suche eine Medikamentenkiste.`,'warn');sfx.empty();fireCD=.4;return}
+  P.stock[P.med]--;fireCD=.6;fireT=0;
+  const c=Math.cos(P.a),s=Math.sin(P.a);
+  darts.push({x:P.x+c*.3,y:P.y+s*.3,dx:c,dy:s,med:P.med,dose:P.dose,life:1.6});sfx.shot();
+}
+function inject(p,d){
+  sfx.hit();
+  if(p.state==='tot'){toast(`${p.name} ist bereits verstorben.`);return}
+  if(p.state==='versorgt'){toast(`${p.name} ist schon versorgt. Spritze verschwendet.`,'warn');return}
+  p.shots++;
+  if(d.med!==p.med){p.health-=22;score-=10;toast(`Falsches Medikament! ${MEDS[d.med].name} hilft nicht gegen ${p.diag}.`,'alarm');if(p.health<=0)die(p,'Fehlmedikation');return}
+  p.level+=d.dose;const z=zone(p);
+  if(z==='letal'){die(p,'Überdosis');return}
+  if(z==='tox'){toast(`${p.name}: Wirkspiegel zu hoch. Vergiftungszeichen!`,'alarm');p.warnT=5}
+  else if(z==='ok')toast(`${p.name}: Im Zielbereich. Zustand stabilisiert sich.`,'ok');
+  else toast(`${p.name}: Keine spürbare Wirkung. Die Dosis reicht nicht.`);
+}
+function die(p,cause){if(p.state!=='krank')return;p.state='tot';p.cause=cause;p.health=0;score-=50;toast(`${p.name} ist verstorben (${cause}).`,'alarm');sfx.death()}
+function cure(p){
+  p.state='versorgt';const prec=p.precN?clamp(p.prec/p.precN,0,1):0;
+  p.points=100+Math.round(prec*100)+Math.round(p.health/2);p.precPct=Math.round(prec*100);score+=p.points;
+  toast(`${p.name} ist versorgt! +${p.points} Punkte · Dosis-Treffsicherheit ${p.precPct} %`,'ok');sfx.cure();
+}
+
+function update(dt){
+  time+=dt;
+  if(state!=='play'){if(state==='title')P.a+=dt*.12;fireT+=dt;return}
+  const cfg=LEVELS[LV];levelTime+=dt;
+  let turn=0;if(keys.ArrowLeft)turn-=1;if(keys.ArrowRight)turn+=1;P.a+=turn*2.4*dt;
+  let fw=0,st=0;
+  if(keys.KeyW||keys.ArrowUp)fw+=1;if(keys.KeyS||keys.ArrowDown)fw-=1;if(keys.KeyD)st+=1;if(keys.KeyA)st-=1;
+  fw-=stick.dy;st+=stick.dx;
+  const len=Math.hypot(fw,st);if(len>1){fw/=len;st/=len}
+  const sp=((keys.ShiftLeft||keys.ShiftRight)?4.6:3)*dt,c=Math.cos(P.a),s=Math.sin(P.a);
+  tryMove(P,(c*fw-s*st)*sp,(s*fw+c*st)*sp,.24);
+  moveAmt+=((len>0.1?1:0)-moveAmt)*Math.min(1,dt*8);walkPhase+=dt*9*moveAmt;
+  fireCD-=dt;fireT+=dt;hurtA=Math.max(0,hurtA-dt*1.5);hurtSfx-=dt;
+
+  // Desinfektion
+  const spraying=sprayHeld&&P.spray>0;
+  sprayAnim=clamp(sprayAnim+(spraying?dt*6:-dt*4),0,1);
+  if(spraying){
+    P.spray=Math.max(0,P.spray-22*dt);sprayTick-=dt;
+    if(sprayTick<=0){sprayTick=.06;sfx.spray();const a=P.a+rand(-.18,.18);mist.push({x:P.x+c*.45,y:P.y+s*.45,vx:Math.cos(a)*3.2,vy:Math.sin(a)*3.2,life:.55})}
+    for(const g of germs){if(!g.alive)continue;const dx=g.x-P.x,dy=g.y-P.y,d=Math.hypot(dx,dy);
+      if(d<2.7&&(dx*c+dy*s)/d>.84&&los(P.x,P.y,g.x,g.y)){g.hp-=2.6*dt;if(g.hp<=0){g.alive=false;splats.push({x:g.x,y:g.y});score+=10;sfx.germ();toast('Keim beseitigt. +10','ok')}}}
+  }else P.spray=Math.min(100,P.spray+2.5*dt);
+
+  // Spritzen im Flug
+  for(const d of darts){
+    d.life-=dt;const step=14*dt/4;
+    for(let k=0;k<4&&d.life>0;k++){d.x+=d.dx*step;d.y+=d.dy*step;
+      if(isWall(d.x,d.y)){d.life=0;sfx.glass();break}
+      for(const p of patients){if(Math.hypot(p.x-d.x,p.y-d.y)<.45){inject(p,d);d.life=0;break}}}
+  }
+  darts=darts.filter(d=>d.life>0);
+
+  // Patienten
+  for(const p of patients){
+    if(p.state!=='krank')continue;
+    p.level*=Math.exp(-p.k*dt);
+    const z=zone(p);
+    if(z==='ok'){p.health=Math.min(100,p.health+4*dt);p.inWin+=dt;p.prec+=(1-Math.abs(p.level-p.c)/p.half)*dt;p.precN+=dt;if(p.inWin>=cfg.cure){cure(p);continue}}
+    else if(z==='tox'){p.health-=8*dt;p.warnT-=dt;if(p.warnT<=0){toast(`${p.name} zeigt Vergiftungszeichen!`,'alarm');p.warnT=6}}
+    else p.health-=p.decay*dt;
+    if(p.health<30&&!p.crit){p.crit=true;toast(`${p.name} (Bett ${p.bed}) ist kritisch!`,'alarm');sfx.alarm()}
+    if(p.health>=40)p.crit=false;
+    if(p.health<=0)die(p,z==='tox'?'Vergiftung':'nicht rechtzeitig versorgt');
+  }
+
+  // Keime
+  if(cfg.germEvery&&levelTime-lastSpawn>cfg.germEvery){lastSpawn=levelTime;
+    if(germs.filter(g=>g.alive).length<cfg.germCap){const sp2=spawns.filter(q=>Math.hypot(q[0]-P.x,q[1]-P.y)>5);if(sp2.length){const q=pick(sp2);germs.push(makeGerm(q[0],q[1]));toast('Neue Keime auf der Station gemeldet.','warn')}}}
+  for(const g of germs){
+    if(!g.alive)continue;g.t+=dt;
+    const dP=Math.hypot(P.x-g.x,P.y-g.y);let tx=null,ty=null;
+    if(dP<6.5){tx=P.x;ty=P.y}
+    else{let best=9;for(const p of patients){if(p.state!=='krank')continue;const d=Math.hypot(p.x-g.x,p.y-g.y);if(d<best){best=d;tx=p.x;ty=p.y}}}
+    let vx,vy;
+    if(tx!==null){const d=Math.hypot(tx-g.x,ty-g.y)||1;vx=(tx-g.x)/d;vy=(ty-g.y)/d}
+    else{g.wa+=rand(-2,2)*dt;vx=Math.cos(g.wa);vy=Math.sin(g.wa)}
+    const ox=g.x,oy=g.y;tryMove(g,vx*cfg.germSpeed*dt,vy*cfg.germSpeed*dt,.2);if(Math.abs(g.x-ox)+Math.abs(g.y-oy)<1e-4)g.wa+=1.7;
+    if(dP<.6){P.hp-=14*dt;hurtA=Math.min(.45,hurtA+dt*2);if(hurtSfx<=0){sfx.hurt();hurtSfx=.5}}
+    for(const p of patients){if(p.state==='krank'&&Math.hypot(p.x-g.x,p.y-g.y)<.8){p.health-=5*dt;p.germT-=dt;if(p.germT<=0){toast(`Ein Keim befällt ${p.name}!`,'warn');p.germT=8}}}
+  }
+
+  // Gegenstände
+  for(const it of pickups){if(it.taken||Math.hypot(it.x-P.x,it.y-P.y)>.6)continue;
+    if(it.type==='med'){it.taken=true;P.stock=P.stock.map(v=>v+3);toast('Medikamentenkiste: +3 Spritzen von jedem Mittel.','ok')}
+    else if(it.type==='spray'){if(P.spray>=99)continue;it.taken=true;P.spray=100;toast('Desinfektionsmittel aufgefüllt.','ok')}
+    else{if(P.hp>=100)continue;it.taken=true;P.hp=Math.min(100,P.hp+35);toast('Starker Kaffee: +35 % Gesundheit.','ok')}
+    sfx.pick()}
+
+  for(const m of mist){m.x+=m.vx*dt;m.y+=m.vy*dt;m.vx*=.93;m.vy*=.93;m.life-=dt;if(isWall(m.x,m.y))m.life=0}
+  mist=mist.filter(m=>m.life>0);
+
+  // Herzmonitor beim Anvisieren
+  beatT-=dt;if(target&&target.state==='krank'&&beatT<=0){const hr=60+(100-target.health)*.9+(zone(target)==='tox'?40:0);beatT=60/hr;sfx.beat(zone(target)==='tox')}
+
+  if(P.hp<=0){P.hp=0;state='over';exitLock();showOver();return}
+  if(endTimer<0&&patients.every(p=>p.state!=='krank'))endTimer=1.6;
+  if(endTimer>=0){endTimer-=dt;if(endTimer<0){state='end';exitLock();showEnd()}}
+}
+
+/* ---------- Rendering ---------- */
+function render(){
+  const dirX=Math.cos(P.a),dirY=Math.sin(P.a),plX=-dirY*PLANE,plY=dirX*PLANE,half=H>>1;
+  const fr=FOG[0],fg=FOG[1],fb=FOG[2];
+  const rx0=dirX-plX,ry0=dirY-plY,rx1=dirX+plX,ry1=dirY+plY,posZ=.5*F;
+  const fl=T.floor,ce=T.ceil,li=T.light;
+  for(let y=half+1;y<H;y++){
+    const rd=posZ/(y-half),sx=rd*(rx1-rx0)/W,sy=rd*(ry1-ry0)/W;let fx=P.x+rd*rx0,fy=P.y+rd*ry0;
+    const s=clamp(1.12-rd*.1,.16,1)*AMB,is=1-s,f0=fr*is,f1=fg*is,f2=fb*is;
+    const rowF=y*W,rowC=(H-y-1)*W;
+    for(let x=0;x<W;x++){
+      const cx=fx|0,cy=fy|0,ti=(((fy-cy)*64)&63)*64+(((fx-cx)*64)&63);
+      let c=fl[ti];buf[rowF+x]=0xff000000|(((c>>16&255)*s+f2)<<16)|(((c>>8&255)*s+f1)<<8)|((c&255)*s+f0);
+      if(cx%4===2&&cy%3===1){buf[rowC+x]=li[ti]}
+      else{c=ce[ti];buf[rowC+x]=0xff000000|(((c>>16&255)*s+f2)<<16)|(((c>>8&255)*s+f1)<<8)|((c&255)*s+f0)}
+      fx+=sx;fy+=sy;
+    }
+  }
+  for(let x=0;x<W;x++){
+    const cam=2*x/W-1,rdx=dirX+plX*cam,rdy=dirY+plY*cam;
+    let mx=P.x|0,my=P.y|0;const ddx=Math.abs(1/rdx),ddy=Math.abs(1/rdy);
+    let stx,sty,sdx,sdy;
+    if(rdx<0){stx=-1;sdx=(P.x-mx)*ddx}else{stx=1;sdx=(mx+1-P.x)*ddx}
+    if(rdy<0){sty=-1;sdy=(P.y-my)*ddy}else{sty=1;sdy=(my+1-P.y)*ddy}
+    let side=0,hit=0;
+    for(let n=0;n<80;n++){if(sdx<sdy){sdx+=ddx;mx+=stx;side=0}else{sdy+=ddy;my+=sty;side=1}
+      if(mx<0||my<0||mx>=MW||my>=MH){hit=1;break}hit=map[my*MW+mx];if(hit)break}
+    const perp=Math.max(.0001,side===0?sdx-ddx:sdy-ddy);zbuf[x]=perp;
+    const tx=WT[(hit||1)-1];
+    let wx=side===0?P.y+perp*rdy:P.x+perp*rdx;wx-=Math.floor(wx);
+    let tX=(wx*64)|0;if(side===0&&rdx>0)tX=63-tX;if(side===1&&rdy<0)tX=63-tX;
+    const lh=F/perp,y0=Math.max(0,(half-lh/2)|0),y1=Math.min(H-1,(half+lh/2)|0),step=64/lh;
+    let tp=(y0-half+lh/2)*step;
+    const s=clamp(1.12-perp*.1,.16,1)*(side?.82:1)*AMB,is=1-s,f0=fr*is,f1=fg*is,f2=fb*is;
+    for(let y=y0;y<=y1;y++){const c=tx[((tp|0)&63)*64+tX];tp+=step;buf[y*W+x]=0xff000000|(((c>>16&255)*s+f2)<<16)|(((c>>8&255)*s+f1)<<8)|((c&255)*s+f0)}
+  }
+  // Sprites
+  const spr=[];
+  for(const p of patients){
+    spr.push({x:p.x,y:p.y,t:p.state==='tot'?T.bedDead:p.state==='versorgt'?T.bedCured[p.blanket]:T.bedSick[p.blanket],sc:1,z:0,pat:p});
+    if(p.state==='krank'){const z=zone(p);const ic=z==='tox'?T.icoTox:p.health>60?T.icoG:p.health>30?T.icoY:T.icoR;
+      if(!(p.health<30&&((time*4)|0)%2))spr.push({x:p.x,y:p.y,t:ic,sc:.2,z:.66})}
+    else if(p.state==='versorgt')spr.push({x:p.x,y:p.y,t:T.icoOk,sc:.2,z:.66});
+  }
+  for(const g of germs)if(g.alive)spr.push({x:g.x,y:g.y,t:T.germ[((g.t*5)|0)%2],sc:.5,z:.12+Math.sin(g.t*4)*.06});
+  for(const it of pickups)if(!it.taken)spr.push({x:it.x,y:it.y,t:it.type==='med'?T.medkit:it.type==='spray'?T.spray:T.coffee,sc:.38,z:Math.sin(time*3+it.x)*.02});
+  for(const s2 of splats)spr.push({x:s2.x,y:s2.y,t:T.splat,sc:.5,z:0});
+  for(const d of darts)spr.push({x:d.x,y:d.y,t:T.dart[d.med],sc:.14,z:.42});
+  for(const m of mist)spr.push({x:m.x,y:m.y,t:T.mist,sc:.3+(.55-m.life)*.6,z:.3,dith:1});
+  const invDet=1/(plX*dirY-dirX*plY);
+  for(const o of spr){const sx=o.x-P.x,sy=o.y-P.y;o.tx=invDet*(dirY*sx-dirX*sy);o.ty=invDet*(-plY*sx+plX*sy)}
+  spr.sort((a,b)=>b.ty-a.ty);
+  target=null;let tBest=1e9;const mid=W>>1;
+  for(const o of spr){
+    if(o.ty<.15)continue;
+    const scrX=(W/2)*(1+o.tx/o.ty),size=F/o.ty*o.sc,bottom=half+(.5-o.z)*F/o.ty,top=bottom-size,left=scrX-size/2;
+    if(o.pat&&o.ty<9&&Math.abs(scrX-mid)<size*.42&&o.ty<zbuf[mid]+.3&&o.ty<tBest){tBest=o.ty;target=o.pat}
+    const x0=Math.max(0,Math.ceil(left)),x1=Math.min(W-1,(left+size)|0),y0=Math.max(0,Math.ceil(top)),y1=Math.min(H-1,bottom|0);
+    if(x0>x1||y0>y1)continue;
+    const s=clamp(1.12-o.ty*.1,.18,1)*AMB,is=1-s,f0=fr*is,f1=fg*is,f2=fb*is,t=o.t,k=64/size;
+    for(let x=x0;x<=x1;x++){
+      if(o.ty>=zbuf[x])continue;const tX=((x-left)*k)&63;
+      for(let y=y0;y<=y1;y++){
+        if(o.dith&&((x+y)&1))continue;
+        const c=t[(((y-top)*k)&63)*64+tX];if((c>>>24)<128)continue;
+        buf[y*W+x]=0xff000000|(((c>>16&255)*s+f2)<<16)|(((c>>8&255)*s+f1)<<8)|((c&255)*s+f0);
+      }
+    }
+  }
+  ctx.putImageData(img,0,0);
+  if(state==='play'||state==='end'){drawSpray();drawSyringe()}
+  if(showMap&&state==='play')drawMap();
+  $('#flash').style.opacity=hurtA;
+}
+function drawSyringe(){
+  const u=H/330,mv=moveAmt,bx=Math.cos(walkPhase)*6*mv,by=Math.abs(Math.sin(walkPhase))*7*mv;
+  let push=0,drop=0,fresh=false;
+  if(fireT<.6){if(fireT<.1)push=fireT/.1;else if(fireT<.3){push=1;drop=(fireT-.1)/.2}else{fresh=true;drop=1-(fireT-.3)/.3}}
+  const has=P.stock[P.med]>0||push>0;
+  const frac=has?(P.dose/12)*(fresh?1:1-push):0,kick=push>0&&drop===0?-10*push:0;
+  const col=MEDS[P.med].color;
+  ctx.save();
+  ctx.translate(W/2+70*u+bx*u,H+40*u+by*u+drop*190*u+kick*u);ctx.rotate(-.24);ctx.scale(u,u);
+  const top=-150,len=106,L=len*frac,rub=top+L;
+  // Handfläche
+  const gr=ctx.createLinearGradient(-40,0,40,0);gr.addColorStop(0,'#3f78b0');gr.addColorStop(.5,'#6aa6dc');gr.addColorStop(1,'#3f78b0');
+  ctx.fillStyle=gr;ctx.beginPath();ctx.roundRect?ctx.roundRect(-42,top+len+4,84,150,26):ctx.rect(-42,top+len+4,84,150);ctx.fill();
+  // Kolben
+  ctx.fillStyle='#cfd6da';ctx.fillRect(-4,rub+6,8,104);ctx.fillStyle='#b5bfc4';ctx.fillRect(-19,rub+108,38,7);
+  ell(ctx,0,rub+122,14,10,'#5a95cc');
+  // Kanüle & Ansatz
+  ctx.strokeStyle='#dfe6ea';ctx.lineWidth=2.4;ctx.beginPath();ctx.moveTo(0,top-8);ctx.lineTo(0,top-58);ctx.stroke();
+  ctx.fillStyle=col;ctx.fillRect(-5,top-14,10,7);
+  ctx.fillStyle='#e9eef0';ctx.beginPath();ctx.moveTo(-12,top);ctx.lineTo(12,top);ctx.lineTo(6,top-8);ctx.lineTo(-6,top-8);ctx.closePath();ctx.fill();
+  // Inhalt
+  ctx.globalAlpha=.9;ctx.fillStyle=col;ctx.fillRect(-11,top,22,L);ctx.globalAlpha=1;
+  ctx.fillStyle='#1d2225';ctx.fillRect(-11,rub,22,6);
+  // Glas
+  ctx.fillStyle='rgba(215,235,245,.16)';ctx.fillRect(-12,top,24,len+2);
+  ctx.strokeStyle='rgba(235,245,250,.9)';ctx.lineWidth=2;ctx.strokeRect(-12,top,24,len+2);
+  ctx.fillStyle='rgba(15,25,30,.75)';for(let i=1;i<12;i++)ctx.fillRect(-12,top+i*len/12,i%2?5:10,1.5);
+  ctx.fillStyle='rgba(255,255,255,.5)';ctx.fillRect(6,top+4,2.5,len-8);
+  // Fingerflansch & Finger
+  ctx.fillStyle='#e3e9ec';ctx.fillRect(-27,top+len,54,6);
+  ell(ctx,-27,top+len-3,11,7,'#5a95cc');ell(ctx,27,top+len-3,11,7,'#5a95cc');
+  ctx.restore();
+}
+function drawSpray(){
+  if(sprayAnim<=0)return;const u=H/330;
+  ctx.save();ctx.translate(W/2-120*u,H+20*u+(1-sprayAnim)*200*u);ctx.rotate(.15);ctx.scale(u,u);
+  ctx.fillStyle='#2d6fb6';ctx.fillRect(-22,-130,44,140);ctx.fillStyle='#f3f6f7';ctx.fillRect(-22,-95,44,46);
+  ctx.fillStyle='#2d6fb6';ctx.font='bold 15px sans-serif';ctx.textAlign='center';ctx.fillText('DESINF',0,-66);
+  ctx.fillStyle='#e6eaec';ctx.fillRect(-12,-152,24,22);ctx.fillStyle='#253034';ctx.fillRect(-6,-166,30,14);
+  ell(ctx,-28,-40,14,26,'#5a95cc');ell(ctx,28,-40,14,26,'#5a95cc');
+  ctx.restore();
+}
+function drawMap(){
+  const cs=Math.max(2,Math.floor(Math.min(W*.4,H*.6)/Math.max(MW,MH))),ox=W-MW*cs-6,oy=6;
+  ctx.globalAlpha=.85;ctx.fillStyle='#071113';ctx.fillRect(ox-2,oy-2,MW*cs+4,MH*cs+4);
+  for(let y=0;y<MH;y++)for(let x=0;x<MW;x++)if(map[y*MW+x]){ctx.fillStyle='#4b6a70';ctx.fillRect(ox+x*cs,oy+y*cs,cs,cs)}
+  for(const p of patients){ctx.fillStyle=p.state==='tot'?'#6d7a7c':p.state==='versorgt'?'#7df0b2':p.health<30?'#ff554b':'#f2b347';ctx.fillRect(ox+p.x*cs-cs*.6,oy+p.y*cs-cs*.6,cs*1.2,cs*1.2)}
+  for(const it of pickups)if(!it.taken){ctx.fillStyle='#e2ebe9';ctx.fillRect(ox+it.x*cs-1,oy+it.y*cs-1,2,2)}
+  for(const g of germs)if(g.alive){ctx.fillStyle='#8bd44a';ctx.fillRect(ox+g.x*cs-1,oy+g.y*cs-1,2,2)}
+  ctx.fillStyle='#ffffff';ctx.beginPath();const px=ox+P.x*cs,py=oy+P.y*cs,c=Math.cos(P.a),s=Math.sin(P.a);
+  ctx.moveTo(px+c*cs*1.4,py+s*cs*1.4);ctx.lineTo(px-c*cs*.8-s*cs*.8,py-s*cs*.8+c*cs*.8);ctx.lineTo(px-c*cs*.8+s*cs*.8,py-s*cs*.8-c*cs*.8);ctx.fill();
+  ctx.globalAlpha=1;
+}
+
+/* ---------- Bildschirme ---------- */
+function showMsg(html){$('#ovTitle').hidden=true;$('#msgSheet').innerHTML=html;$('#ovMsg').hidden=false;const b=$('#ovMsg button');if(b)b.focus()}
+function hideMsg(){$('#ovMsg').hidden=true;$('#ovTitle').hidden=true}
+function showIntro(){
+  const c=LEVELS[LV];state='intro';
+  showMsg(`<div class="kicker">Schicht ${LV+1} von 3 · ${String(c.clock/60|0).padStart(2,'0')}:${String(c.clock%60).padStart(2,'0')} Uhr</div><h2>${c.name}</h2><p>${c.brief}</p>
+  <p class="fine">Heilung nach ${c.cure} s im Zielbereich · Vorrat: je ${c.stock[0]} Spritzen pro Medikament</p>
+  <div class="actions"><button class="btn" type="button" data-go="play">Station betreten</button></div>`);
+}
+function resultTable(){
+  return `<div class="res-wrap"><table class="res"><thead><tr><th>Bett</th><th>Patient</th><th>Diagnose</th><th>Ergebnis</th><th style="text-align:right">Punkte</th></tr></thead><tbody>${
+    patients.map(p=>`<tr><td>${p.bed}</td><td>${p.name}</td><td>${p.diag}</td><td class="${p.state==='versorgt'?'ok-t':'bad-t'}">${p.state==='versorgt'?`Versorgt · Treffsicherheit ${p.precPct} %`:`Verstorben · ${p.cause}`}</td><td class="n">${p.state==='versorgt'?'+'+p.points:'−50'}</td></tr>`).join('')
+  }</tbody></table></div>`;
+}
+let totalSaved=0;
+function showEnd(){
+  const saved=patients.filter(p=>p.state==='versorgt').length,pass=saved>=3;
+  if(pass&&saved===5){score+=200}
+  if(pass)totalSaved+=saved;
+  const bonus=pass&&saved===5?'<p class="ok-t">Alle fünf gerettet: +200 Bonuspunkte.</p>':'';
+  if(pass&&LV===2){showWin(bonus);return}
+  showMsg(`<div class="kicker">${LEVELS[LV].name} · Schichtbericht</div><h2>${pass?`${saved} von 5 gerettet`:`Nur ${saved} von 5 überlebt`}</h2>
+  ${pass?'<p>Die Station ist versorgt. Weiter zur nächsten.</p>':'<p>Mindestens drei Patienten müssen überleben. Die Station wird neu belegt, du versuchst es noch einmal.</p>'}
+  ${bonus}${resultTable()}
+  <div class="tot"><div><span class="lab">Punkte gesamt</span><span class="big">${score}</span></div></div>
+  <div class="actions"><button class="btn" type="button" data-go="${pass?'next':'retry'}">${pass?'Nächste Station':'Station wiederholen'}</button></div>`);
+}
+function showOver(){
+  showMsg(`<div class="kicker">${LEVELS[LV].name}</div><h2>Kollaps im Dienst</h2><p>Die Keime haben dich erwischt. Halte Abstand und nutze das Desinfektionsspray, bevor sie dich erreichen.</p>
+  <div class="actions"><button class="btn" type="button" data-go="retry">Station wiederholen</button></div>`);
+}
+function showWin(bonus){
+  state='win';const rating=totalSaved>=14?'Ausgezeichnet':totalSaved>=11?'Solide Arbeit':'Knapp geschafft';
+  showMsg(`<div class="kicker">06:00 Uhr · Übergabe an die Frühschicht</div><h2>Nachtschicht überstanden</h2>
+  <p>Du hast ${totalSaved} von 15 Patienten durch die Nacht gebracht.</p>${bonus}${resultTable()}
+  <div class="tot"><div><span class="lab">Punkte</span><span class="big">${score}</span></div><div><span class="lab">Bewertung</span><span class="big">${rating}</span></div></div>
+  <div class="actions"><button class="btn" type="button" data-go="restart">Neue Nacht</button><button class="btn ghost" type="button" data-go="title">Zum Titel</button></div>`);
+}
+function showPause(){
+  state='paused';
+  showMsg(`<div class="kicker">${LEVELS[LV].name}</div><h2>Pause</h2><p>Die Zeit auf der Station steht still.</p>
+  <div class="actions"><button class="btn" type="button" data-go="resume">Weiter</button><button class="btn ghost" type="button" data-go="retry">Station neu starten</button></div>`);
+}
+$('#ovMsg').addEventListener('click',e=>{
+  const b=e.target.closest('[data-go]');if(!b)return;const go=b.dataset.go;
+  if(go==='play'||go==='resume'){hideMsg();state='play';lock()}
+  else if(go==='next'){loadLevel(LV+1);showIntro()}
+  else if(go==='retry'){score=levelStartScore;loadLevel(LV);showIntro()}
+  else if(go==='restart'){score=0;totalSaved=0;loadLevel(0);showIntro()}
+  else if(go==='title'){score=0;totalSaved=0;loadLevel(0);state='title';$('#ovMsg').hidden=true;$('#ovTitle').hidden=false}
+});
+$('#btnStart').addEventListener('click',()=>{audioInit();score=0;totalSaved=0;loadLevel(0);showIntro()});
+$('#legend').innerHTML=MEDS.map((m,i)=>`<div style="--c:${m.color}"><b>${i+1} · ${m.name}</b>${m.use}: ${m.info}</div>`).join('');
+
+/* ---------- Eingabe ---------- */
+let locked=false;
+function lock(){try{const r=cvs.requestPointerLock&&cvs.requestPointerLock();if(r&&r.catch)r.catch(()=>{})}catch(e){}}
+function exitLock(){try{if(document.pointerLockElement)document.exitPointerLock()}catch(e){}sprayHeld=false}
+document.addEventListener('pointerlockchange',()=>{const now=document.pointerLockElement===cvs;if(locked&&!now&&state==='play')showPause();locked=now});
+cvs.addEventListener('pointerdown',e=>{
+  if(e.pointerType!=='mouse'){look.id=e.pointerId;look.lx=e.clientX;return}
+  if(state!=='play')return;audioInit();
+  if(!locked)lock();
+  if(e.button===0)fire();else if(e.button===2)sprayHeld=true;
+});
+window.addEventListener('pointerup',e=>{if(e.pointerType==='mouse'&&e.button===2)sprayHeld=false;if(e.pointerId===look.id)look.id=null});
+cvs.addEventListener('contextmenu',e=>e.preventDefault());
+window.addEventListener('pointermove',e=>{
+  if(e.pointerId===look.id&&state==='play'){P.a+=(e.clientX-look.lx)*.008;look.lx=e.clientX;return}
+  if(e.pointerType==='mouse'&&state==='play'&&(locked||e.buttons))P.a+=(e.movementX||0)*.0026;
+});
+cvs.addEventListener('wheel',e=>{if(state!=='play')return;e.preventDefault();changeDose(e.deltaY<0?.5:-.5)},{passive:false});
+function changeDose(d){P.dose=clamp(Math.round((P.dose+d)*2)/2,.5,12)}
+window.addEventListener('keydown',e=>{
+  keys[e.code]=true;
+  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab'].includes(e.code)&&state==='play')e.preventDefault();
+  if(state!=='play'){if(e.code==='KeyP'&&state==='paused'){hideMsg();state='play';lock()}return}
+  if(e.code==='KeyQ'||e.code==='Minus'||e.code==='NumpadSubtract')changeDose(-.5);
+  if(e.code==='KeyE'||e.code==='Equal'||e.code==='NumpadAdd'||e.code==='BracketRight')changeDose(.5);
+  if(/^Digit[1-4]$/.test(e.code))P.med=+e.code.slice(5)-1;
+  if(e.code==='Space')sprayHeld=true;
+  if(e.code==='KeyM'||e.code==='Tab')showMap=!showMap;
+  if(e.code==='KeyF'||e.code==='Enter')fire();
+  if(e.code==='KeyP'||(e.code==='Escape'&&!locked)){exitLock();showPause()}
+});
+window.addEventListener('keyup',e=>{keys[e.code]=false;if(e.code==='Space')sprayHeld=false});
+window.addEventListener('blur',()=>{for(const k in keys)keys[k]=false;sprayHeld=false});
+
+/* Touch */
+const stick={id:null,x0:0,y0:0,dx:0,dy:0},look={id:null,lx:0};
+if(matchMedia('(pointer: coarse)').matches)$('#touch').hidden=false;
+const sz=$('#stickZone'),knob=$('#stickKnob');
+sz.addEventListener('pointerdown',e=>{stick.id=e.pointerId;const r=sz.getBoundingClientRect();stick.x0=r.left+r.width/2;stick.y0=r.top+r.height/2;sz.setPointerCapture(e.pointerId);moveStick(e);e.preventDefault()});
+sz.addEventListener('pointermove',e=>{if(e.pointerId===stick.id)moveStick(e)});
+function moveStick(e){stick.dx=clamp((e.clientX-stick.x0)/50,-1,1);stick.dy=clamp((e.clientY-stick.y0)/50,-1,1);knob.style.transform=`translate(${stick.dx*38}px,${stick.dy*38}px)`}
+function endStick(e){if(e.pointerId!==stick.id)return;stick.id=null;stick.dx=stick.dy=0;knob.style.transform=''}
+sz.addEventListener('pointerup',endStick);sz.addEventListener('pointercancel',endStick);
+$('#tbtns').addEventListener('pointerdown',e=>{const b=e.target.closest('button');if(!b)return;e.preventDefault();audioInit();const a=b.dataset.act;
+  if(a==='fire')fire();else if(a==='spray')sprayHeld=true;else if(a==='minus')changeDose(-.5);else if(a==='plus')changeDose(.5);else if(a==='med')P.med=(P.med+1)%4});
+['pointerup','pointercancel','pointerleave'].forEach(t=>$('#tbtns').addEventListener(t,e=>{const b=e.target.closest&&e.target.closest('button');if(b&&b.dataset.act==='spray')sprayHeld=false}));
+
+/* ---------- Start ---------- */
+buildSprites();resize();loadLevel(0);updateHUD();
+window.addEventListener('resize',resize);
+let last=performance.now(),hudT=0;
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;
+  update(dt);render();hudT-=dt;if(hudT<=0){hudT=1/12;updateHUD()}
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
