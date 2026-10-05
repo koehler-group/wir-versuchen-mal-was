@@ -1,3 +1,8 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dosis</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -122,6 +127,22 @@ table.res td.n{font:19px/1 var(--mono);text-align:right}
 .tot div{display:flex;flex-direction:column}
 .ok-t{color:var(--vital)}.bad-t{color:var(--alarm)}
 
+/* Bestenliste */
+.hs{margin-top:20px}
+.hs h3{margin:0 0 8px;font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--mute);border-bottom:1px solid var(--line);padding-bottom:5px}
+.hs-list{list-style:none;margin:0;padding:0;font-size:14px}
+.hs-list li{display:grid;grid-template-columns:28px minmax(0,1fr) auto 64px;gap:10px;align-items:baseline;padding-block:4px;border-bottom:1px solid rgba(42,65,70,.6)}
+.hs-list .rk{font:19px/1 var(--mono);color:var(--mute)}
+.hs-list .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hs-list .meta{font-size:12px;color:var(--mute)}
+.hs-list .pt{font:21px/1 var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+.hs-list li.me .nm,.hs-list li.me .pt{color:var(--vital)}
+.hs-note{font-size:13px;color:var(--mute);margin:6px 0}
+.hs-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.hs-form input{font:18px var(--body);background:#0f2124;color:var(--ink);border:1px solid var(--line);padding:9px 10px;min-width:0;flex:1 1 180px;max-width:280px}
+.hs-form input:focus-visible{outline:2px solid var(--scrub);outline-offset:1px}
+.hs-form .btn{font-size:18px;padding:11px 18px 9px}
+
 /* Touch */
 #touch{position:absolute;inset:0;pointer-events:none}
 #stickZone{position:absolute;left:16px;bottom:16px;width:130px;height:130px;border-radius:50%;border:2px solid rgba(226,235,233,.25);background:rgba(7,17,19,.35);pointer-events:auto;touch-action:none}
@@ -138,7 +159,11 @@ table.res td.n{font:19px/1 var(--mono);text-align:right}
   .hint{display:none}
 }
 @media (prefers-reduced-motion:reduce){.chip.crit{animation:none}.toast{transition:none}}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0}
 </style>
+</head>
+<body>
 
 <div id="app">
   <div id="viewport">
@@ -196,6 +221,7 @@ table.res td.n{font:19px/1 var(--mono);text-align:right}
               <span><kbd>P</kbd></span><span>Pause</span>
             </div>
           </div>
+          <div class="hs" id="titleScores" style="margin-top:0"><h3>Bestenliste</h3><p class="hs-note">Wird geladen …</p></div>
         </div>
         <div class="legend" id="legend"></div>
         <div class="actions">
@@ -759,6 +785,84 @@ function drawMap(){
   ctx.globalAlpha=1;
 }
 
+/* ---------- Bestenliste ----------
+   Im claude.ai-Artifact: geteilte Artifact-Datenbank (fremde Server sind dort gesperrt).
+   Lokal oder selbst gehostet: Supabase-Tabelle "highscores" (siehe supabase/highscores.sql). */
+const SUPABASE_URL='https://dmalkmncfwqizagjnhlo.supabase.co';
+const SUPABASE_KEY='sb_publishable_MZ-Yn6E97GMAvniGF8jmUQ_f-aG0pXZ'; // öffentlicher anon/publishable Key, niemals den service_role Key
+const HS={mode:'none',db:null,uid:null,canWrite:false,reason:'',myKey:null};
+let submitted=false;
+const hsReady=(async()=>{
+  if(window.claude&&typeof window.claude.use==='function'){
+    try{
+      const [db,user]=await Promise.all([window.claude.use('db'),window.claude.use('user')]);
+      if(!db){HS.reason='Die Bestenliste ist in dieser Ansicht nicht verfügbar.';return}
+      HS.mode='artifact';HS.db=db;HS.uid=user?await user.id():null;
+      HS.canWrite=!!HS.uid&&(user?await user.can('data.write'):null)!==false;
+      if(!HS.canWrite)HS.reason='Mit deinem Zugriff kannst du die Bestenliste nur ansehen.';
+    }catch(e){HS.mode='none';HS.reason='Die Bestenliste ist in dieser Ansicht nicht verfügbar.'}
+  }else if(SUPABASE_KEY){HS.mode='supabase';HS.canWrite=true}
+  else HS.reason='Für Supabase fehlt noch der öffentliche Schlüssel (SUPABASE_KEY).';
+})();
+function sbHeaders(){const h={apikey:SUPABASE_KEY,'Content-Type':'application/json'};if(SUPABASE_KEY.startsWith('eyJ'))h.Authorization='Bearer '+SUPABASE_KEY;return h}
+async function hsTop(){
+  await hsReady;
+  if(HS.mode==='artifact'){const s=await HS.db.collection('scores').orderBy('score','desc').limit(10).get();return s.docs.map(d=>({...d.data(),key:d.id}))}
+  if(HS.mode==='supabase'){const r=await fetch(`${SUPABASE_URL}/rest/v1/highscores?select=id,name,score,saved,stage&order=score.desc,created_at.asc&limit=10`,{headers:sbHeaders()});
+    if(!r.ok)throw new Error('HTTP '+r.status);return (await r.json()).map(e=>({...e,key:String(e.id)}))}
+  return null;
+}
+async function hsSubmit(entry){
+  await hsReady;
+  if(HS.mode==='artifact'){
+    const ref=HS.db.doc('scores/'+HS.uid);const cur=await ref.get();HS.myKey=HS.uid;
+    if(cur.exists&&(cur.data().score??-1e9)>=entry.score)return 'kept';
+    await ref.set({...entry,at:new Date().toISOString()});return 'saved';
+  }
+  if(HS.mode==='supabase'){
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/highscores?select=id`,{method:'POST',headers:{...sbHeaders(),Prefer:'return=representation'},body:JSON.stringify(entry)});
+    if(!r.ok)throw new Error('HTTP '+r.status);const rows=await r.json();HS.myKey=rows[0]?String(rows[0].id):null;return 'saved';
+  }
+  return 'off';
+}
+async function renderScores(box){
+  const h=document.createElement('h3');h.textContent='Bestenliste';
+  let list;
+  try{list=await hsTop()}catch(e){box.replaceChildren(h,note('Die Bestenliste konnte nicht geladen werden. Prüfe die Verbindung und die Supabase-Tabelle.'));return}
+  if(!list){box.replaceChildren(h,note(HS.reason));return}
+  if(!list.length){box.replaceChildren(h,note('Noch keine Einträge. Der erste Platz ist frei.'));return}
+  const ol=document.createElement('ol');ol.className='hs-list';
+  list.forEach((e,i)=>{const li=document.createElement('li');if(e.key&&e.key===HS.myKey)li.className='me';
+    const rk=document.createElement('span');rk.className='rk';rk.textContent=i+1;
+    const nm=document.createElement('span');nm.className='nm';nm.textContent=e.name||'Unbekannt';
+    const meta=document.createElement('span');meta.className='meta';meta.textContent=`${e.saved}/15 gerettet · Station ${e.stage}`;
+    const pt=document.createElement('span');pt.className='pt';pt.textContent=e.score;
+    li.append(rk,nm,meta,pt);ol.appendChild(li)});
+  box.replaceChildren(h,ol);
+  if(HS.reason&&HS.mode!=='none')box.appendChild(note(HS.reason));
+}
+function note(t){const p=document.createElement('p');p.className='hs-note';p.textContent=t;return p}
+async function mountHS(stage,saved){
+  const box=$('#hsBox');if(!box)return;await hsReady;
+  const listBox=document.createElement('div');
+  if(HS.mode!=='none'&&HS.canWrite&&!submitted){
+    const f=document.createElement('form');f.className='hs-form';
+    let last='';try{last=localStorage.getItem('dosis-name')||''}catch(e){}
+    f.innerHTML='<input id="hsName" name="hsName" maxlength="20" autocomplete="nickname" placeholder="Dein Name" aria-label="Name für die Bestenliste" required><button class="btn" type="submit">Eintragen</button>';
+    f.querySelector('input').value=last;
+    f.addEventListener('submit',async ev=>{ev.preventDefault();const name=f.hsName.value.trim().slice(0,20);if(!name)return;
+      const b=f.querySelector('button');b.disabled=true;b.textContent='Speichert …';
+      try{localStorage.setItem('dosis-name',name)}catch(e){}
+      try{const r=await hsSubmit({name,score,saved,stage});submitted=true;
+        f.replaceWith(note(r==='kept'?'Dein bisheriger Rekord ist höher und bleibt stehen.':`Eingetragen: ${name} mit ${score} Punkten.`));renderScores(listBox)}
+      catch(e){b.disabled=false;b.textContent='Erneut versuchen';f.appendChild(note('Speichern hat nicht geklappt. Versuche es noch einmal.'))}});
+    box.appendChild(f);
+  }else if(submitted)box.appendChild(note('Für diesen Durchgang ist bereits ein Ergebnis eingetragen.'));
+  box.appendChild(listBox);renderScores(listBox);
+}
+function hsBlock(){return '<div class="hs" id="hsBox"></div>'}
+renderScores($('#titleScores'));
+
 /* ---------- Bildschirme ---------- */
 function showMsg(html){$('#ovTitle').hidden=true;$('#msgSheet').innerHTML=html;$('#ovMsg').hidden=false;const b=$('#ovMsg button');if(b)b.focus()}
 function hideMsg(){$('#ovMsg').hidden=true;$('#ovTitle').hidden=true}
@@ -784,18 +888,25 @@ function showEnd(){
   ${pass?'<p>Die Station ist versorgt. Weiter zur nächsten.</p>':'<p>Mindestens drei Patienten müssen überleben. Die Station wird neu belegt, du versuchst es noch einmal.</p>'}
   ${bonus}${resultTable()}
   <div class="tot"><div><span class="lab">Punkte gesamt</span><span class="big">${score}</span></div></div>
-  <div class="actions"><button class="btn" type="button" data-go="${pass?'next':'retry'}">${pass?'Nächste Station':'Station wiederholen'}</button></div>`);
+  <div class="actions"><button class="btn" type="button" data-go="${pass?'next':'retry'}">${pass?'Nächste Station':'Station wiederholen'}</button>${pass?'':'<button class="btn ghost" type="button" data-go="restart">Neue Nacht</button>'}</div>
+  ${pass?'':hsBlock()}`);
+  if(!pass)mountHS(LV+1,totalSaved);
 }
 function showOver(){
   showMsg(`<div class="kicker">${LEVELS[LV].name}</div><h2>Kollaps im Dienst</h2><p>Die Keime haben dich erwischt. Halte Abstand und nutze das Desinfektionsspray, bevor sie dich erreichen.</p>
-  <div class="actions"><button class="btn" type="button" data-go="retry">Station wiederholen</button></div>`);
+  <div class="tot"><div><span class="lab">Punkte gesamt</span><span class="big">${score}</span></div></div>
+  <div class="actions"><button class="btn" type="button" data-go="retry">Station wiederholen</button><button class="btn ghost" type="button" data-go="restart">Neue Nacht</button></div>
+  ${hsBlock()}`);
+  mountHS(LV+1,totalSaved);
 }
 function showWin(bonus){
   state='win';const rating=totalSaved>=14?'Ausgezeichnet':totalSaved>=11?'Solide Arbeit':'Knapp geschafft';
   showMsg(`<div class="kicker">06:00 Uhr · Übergabe an die Frühschicht</div><h2>Nachtschicht überstanden</h2>
   <p>Du hast ${totalSaved} von 15 Patienten durch die Nacht gebracht.</p>${bonus}${resultTable()}
   <div class="tot"><div><span class="lab">Punkte</span><span class="big">${score}</span></div><div><span class="lab">Bewertung</span><span class="big">${rating}</span></div></div>
-  <div class="actions"><button class="btn" type="button" data-go="restart">Neue Nacht</button><button class="btn ghost" type="button" data-go="title">Zum Titel</button></div>`);
+  <div class="actions"><button class="btn" type="button" data-go="restart">Neue Nacht</button><button class="btn ghost" type="button" data-go="title">Zum Titel</button></div>
+  ${hsBlock()}`);
+  mountHS(3,totalSaved);
 }
 function showPause(){
   state='paused';
@@ -807,10 +918,10 @@ $('#ovMsg').addEventListener('click',e=>{
   if(go==='play'||go==='resume'){hideMsg();state='play';lock()}
   else if(go==='next'){loadLevel(LV+1);showIntro()}
   else if(go==='retry'){score=levelStartScore;loadLevel(LV);showIntro()}
-  else if(go==='restart'){score=0;totalSaved=0;loadLevel(0);showIntro()}
-  else if(go==='title'){score=0;totalSaved=0;loadLevel(0);state='title';$('#ovMsg').hidden=true;$('#ovTitle').hidden=false}
+  else if(go==='restart'){score=0;totalSaved=0;submitted=false;loadLevel(0);showIntro()}
+  else if(go==='title'){score=0;totalSaved=0;submitted=false;loadLevel(0);state='title';$('#ovMsg').hidden=true;$('#ovTitle').hidden=false;renderScores($('#titleScores'))}
 });
-$('#btnStart').addEventListener('click',()=>{audioInit();score=0;totalSaved=0;loadLevel(0);showIntro()});
+$('#btnStart').addEventListener('click',()=>{audioInit();score=0;totalSaved=0;submitted=false;loadLevel(0);showIntro()});
 $('#legend').innerHTML=MEDS.map((m,i)=>`<div style="--c:${m.color}"><b>${i+1} · ${m.name}</b>${m.use}: ${m.info}</div>`).join('');
 
 /* ---------- Eingabe ---------- */
@@ -871,3 +982,5 @@ function frame(now){
 }
 requestAnimationFrame(frame);
 </script>
+</body>
+</html>
